@@ -17,16 +17,20 @@ module ChefUpdaterCookbook
     class ChefUpdaterWindows < Chef::Provider
       include Poise
       provides(:chef_updater, os: 'windows')
-
+      Chef.set_provider_priority_array(:chef_updater, [ ChefUpdaterCookbook::Provider::ChefUpdaterWindows ], os: 'windows')
       def action_run
         requested_package_version = new_resource.package_version.split('-').first
         return if chef_version.satisfies?(">= #{requested_package_version}")
         notifying_block do
+          location = remote_file new_resource.fancy_basename do
+            path ::File.join(Chef::Config[:file_cache_path], new_resource.fancy_basename)
+            source new_resource.remote_source
+            checksum new_resource.package_checksum
+          end
           execute 'chef-uninstall' do
             command 'wmic product where "name like \'Chef Client%% %%\'" call uninstall /nointeractive'
             notifies :install, "windows_package[#{new_resource.package_name}]", :immediately
           end
-
           ruby_block 'Abort Chef Convergence' do
             block { throw :end_client_run_early }
             action :nothing
@@ -35,8 +39,8 @@ module ChefUpdaterCookbook
             action :nothing
             installer_type :msi
             version new_resource.package_version
-            source new_resource.remote_source
-            checksum new_resource.package_checksum
+            source location.path
+            #checksum new_resource.package_checksum
             timeout new_resource.timeout
             notifies :run, 'ruby_block[Abort Chef Convergence]', :immediately
           end
